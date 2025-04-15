@@ -37,7 +37,7 @@ from typing import (
 )
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, RootModel
+from pydantic import BaseModel, ConfigDict
 from typing_extensions import TypeAlias
 
 if TYPE_CHECKING:
@@ -152,24 +152,23 @@ class IcebergBaseModel(BaseModel):
 
 T = TypeVar("T")
 
+class IcebergRootModel(BaseModel, Generic[T]):
+    __root__: T
 
-class IcebergRootModel(RootModel[T], Generic[T]):
-    """
-    This class extends the Pydantic BaseModel to set default values by overriding them.
+    class Config:
+        allow_population_by_field_name = True
+        use_enum_values = True
+        by_alias = True
+        exclude_none = True
+        frozen = True
 
-    This is because we always want to set by_alias to True. In Python, the dash can't
-    be used in variable names, and this is used throughout the Iceberg spec.
+    @property
+    def root(self) -> T:
+        return self.__root__
 
-    The same goes for exclude_none, if a field is None we want to omit it from
-    serialization, for example, the doc attribute on the NestedField object.
-    Default non-null values will be serialized.
-
-    This is recommended by Pydantic:
-    https://pydantic-docs.helpmanual.io/usage/model_config/#change-behaviour-globally
-    """
-
-    model_config = ConfigDict(frozen=True)
-
+    @root.setter
+    def root(self, value: T) -> None:
+        object.__setattr__(self, '__root__', value)
 
 @lru_cache
 def _get_struct_fields(struct_type: StructType) -> Tuple[str, ...]:
