@@ -147,6 +147,12 @@ BUFFER_SIZE = "buffer-size"
 ICEBERG_SCHEMA = b"iceberg.schema"
 FIELD_ID = "field_id"
 DOC = "doc"
+PYARROW_PARQUET_FIELD_ID_KEY = b"PARQUET:field_id"
+PYARROW_FIELD_DOC_KEY = b"doc"
+LIST_ELEMENT_NAME = "element"
+MAP_KEY_NAME = "key"
+MAP_VALUE_NAME = "value"
+UTC_ALIASES = {"UTC", "+00:00", "Etc/UTC", "Z"}
 PYARROW_FIELD_ID_KEYS = [b"PARQUET:field_id", b"field_id"]
 PYARROW_FIELD_DOC_KEYS = [b"PARQUET:field_doc", b"field_doc", b"doc"]
 
@@ -395,28 +401,44 @@ class PyArrowFileIO(FileIO):
             raise  # pragma: no cover - If some other kind of OSError, raise the raw error
 
 
-def schema_to_pyarrow(schema: Union[Schema, IcebergType]) -> pa.schema:
-    return visit(schema, _ConvertToArrowSchema())
+def schema_to_pyarrow(
+    schema: Union[Schema, IcebergType],
+    metadata: Dict[bytes, bytes] = EMPTY_DICT,
+    include_field_ids: bool = True,
+) -> pa.schema:
+    return visit(schema, _ConvertToArrowSchema(metadata, include_field_ids))
 
 
 class _ConvertToArrowSchema(SchemaVisitorPerPrimitiveType[pa.DataType], Singleton):
+    _metadata: Dict[bytes, bytes]
+
+    def __init__(self, metadata: Dict[bytes, bytes] = EMPTY_DICT, include_field_ids: bool = True) -> None:
+        self._metadata = metadata
+        self._include_field_ids = include_field_ids
+
     def schema(self, _: Schema, struct_result: pa.StructType) -> pa.schema:
-        return pa.schema(list(struct_result))
+        return pa.schema(list(struct_result), metadata=self._metadata)
 
     def struct(self, _: StructType, field_results: List[pa.DataType]) -> pa.DataType:
         return pa.struct(field_results)
 
     def field(self, field: NestedField, field_result: pa.DataType) -> pa.Field:
+        metadata = {}
+        if field.doc:
+            metadata[PYARROW_FIELD_DOC_KEY] = field.doc
+        if self._include_field_ids:
+            metadata[PYARROW_PARQUET_FIELD_ID_KEY] = str(field.field_id)
+
         return pa.field(
             name=field.name,
             type=field_result,
             nullable=field.optional,
-            metadata={DOC: field.doc, FIELD_ID: str(field.field_id)} if field.doc else {FIELD_ID: str(field.field_id)},
+            metadata=metadata,
         )
 
     def list(self, list_type: ListType, element_result: pa.DataType) -> pa.DataType:
         element_field = self.field(list_type.element_field, element_result)
-        return pa.list_(value_type=element_field)
+        return pa.large_list(value_type=element_field)
 
     def map(self, map_type: MapType, key_result: pa.DataType, value_result: pa.DataType) -> pa.DataType:
         key_field = self.field(map_type.key_field, key_result)
@@ -456,17 +478,27 @@ class _ConvertToArrowSchema(SchemaVisitorPerPrimitiveType[pa.DataType], Singleto
     def visit_timestamp(self, _: TimestampType) -> pa.DataType:
         return pa.timestamp(unit="us")
 
+    # def visit_timestamp_ns(self, _: TimestampNanoType) -> pa.DataType:
+    #     return pa.timestamp(unit="ns")
+
     def visit_timestamptz(self, _: TimestamptzType) -> pa.DataType:
         return pa.timestamp(unit="us", tz="UTC")
 
+    # def visit_timestamptz_ns(self, _: TimestamptzNanoType) -> pa.DataType:
+    #     return pa.timestamp(unit="ns", tz="UTC")
+
     def visit_string(self, _: StringType) -> pa.DataType:
-        return pa.string()
+        return pa.large_string()
 
     def visit_uuid(self, _: UUIDType) -> pa.DataType:
         return pa.binary(16)
 
+    # def visit_unknown(self, _: UnknownType) -> pa.DataType:
+    #     return pa.null()
+
     def visit_binary(self, _: BinaryType) -> pa.DataType:
-        return pa.binary()
+        return pa.large_binary()
+
 
 
 def _convert_scalar(value: Any, iceberg_type: IcebergType) -> pa.scalar:
@@ -575,14 +607,279 @@ def _combine_positional_deletes(positional_deletes: List[pa.ChunkedArray], rows:
     return np.setdiff1d(np.arange(rows), all_chunks, assume_unique=False)
 
 
-def pyarrow_to_schema(schema: pa.Schema) -> Schema:
-    visitor = _ConvertToIceberg()
-    return visit_pyarrow(schema, visitor)
+class PyArrowSchemaVisitor(Generic[T], ABC):
+    def before_field(self, field: pa.Field) -> None:
+        """Override this method to perform an action immediately before visiting a field."""
 
+    def after_field(self, field: pa.Field) -> None:
+        """Override this method to perform an action immediately after visiting a field."""
+
+    def before_list_element(self, element: pa.Field) -> None:
+        """Override this method to perform an action immediately before visiting an element within a ListType."""
+
+    def after_list_element(self, element: pa.Field) -> None:
+        """Override this method to perform an action immediately after visiting an element within a ListType."""
+
+    def before_map_key(self, key: pa.Field) -> None:
+        """Override this method to perform an action immediately before visiting a key within a MapType."""
+
+    def after_map_key(self, key: pa.Field) -> None:
+        """Override this method to perform an action immediately after visiting a key within a MapType."""
+
+    def before_map_value(self, value: pa.Field) -> None:
+        """Override this method to perform an action immediately before visiting a value within a MapType."""
+
+    def after_map_value(self, value: pa.Field) -> None:
+        """Override this method to perform an action immediately after visiting a value within a MapType."""
+
+    @abstractmethod
+    def schema(self, schema: pa.Schema, struct_result: T) -> T:
+        """Visit a schema."""
+
+    @abstractmethod
+    def struct(self, struct: pa.StructType, field_results: List[T]) -> T:
+        """Visit a struct."""
+
+    @abstractmethod
+    def field(self, field: pa.Field, field_result: T) -> T:
+        """Visit a field."""
+
+    @abstractmethod
+    def list(self, list_type: pa.ListType, element_result: T) -> T:
+        """Visit a list."""
+
+    @abstractmethod
+    def map(self, map_type: pa.MapType, key_result: T, value_result: T) -> T:
+        """Visit a map."""
+
+    @abstractmethod
+    def primitive(self, primitive: pa.DataType) -> T:
+        """Visit a primitive type."""
+
+class _HasIds(PyArrowSchemaVisitor[bool]):
+    def schema(self, schema: pa.Schema, struct_result: bool) -> bool:
+        return struct_result
+
+    def struct(self, struct: pa.StructType, field_results: List[bool]) -> bool:
+        return all(field_results)
+
+    def field(self, field: pa.Field, field_result: bool) -> bool:
+        return all([_get_field_id(field) is not None, field_result])
+
+    def list(self, list_type: pa.ListType, element_result: bool) -> bool:
+        element_field = list_type.value_field
+        element_id = _get_field_id(element_field)
+        return element_result and element_id is not None
+
+    def map(self, map_type: pa.MapType, key_result: bool, value_result: bool) -> bool:
+        key_field = map_type.key_field
+        key_id = _get_field_id(key_field)
+        value_field = map_type.item_field
+        value_id = _get_field_id(value_field)
+        return all([key_id is not None, value_id is not None, key_result, value_result])
+
+    def primitive(self, primitive: pa.DataType) -> bool:
+        return True
+
+class _ConvertToIceberg(PyArrowSchemaVisitor[Union[IcebergType, Schema]]):
+    """Converts PyArrowSchema to Iceberg Schema. Applies the IDs from name_mapping if provided."""
+
+    _field_names: List[str]
+
+    def __init__(self, downcast_ns_timestamp_to_us: bool = False) -> None:
+        self._field_names = []
+        self._downcast_ns_timestamp_to_us = downcast_ns_timestamp_to_us
+
+    def _field_id(self, field: pa.Field) -> int:
+        if (field_id := _get_field_id(field)) is not None:
+            return field_id
+        else:
+            raise ValueError(f"Cannot convert {field} to Iceberg Field as field_id is empty.")
+
+    def schema(self, schema: pa.Schema, struct_result: StructType) -> Schema:
+        return Schema(*struct_result.fields)
+
+    def struct(self, struct: pa.StructType, field_results: List[NestedField]) -> StructType:
+        return StructType(*field_results)
+
+    def field(self, field: pa.Field, field_result: IcebergType) -> NestedField:
+        field_id = self._field_id(field)
+        field_doc = doc_str.decode() if (field.metadata and (doc_str := field.metadata.get(PYARROW_FIELD_DOC_KEY))) else None
+        field_type = field_result
+        return NestedField(field_id, field.name, field_type, required=not field.nullable, doc=field_doc)
+
+    def list(self, list_type: pa.ListType, element_result: IcebergType) -> ListType:
+        element_field = list_type.value_field
+        self._field_names.append(LIST_ELEMENT_NAME)
+        element_id = self._field_id(element_field)
+        self._field_names.pop()
+        return ListType(element_id, element_result, element_required=not element_field.nullable)
+
+    def map(self, map_type: pa.MapType, key_result: IcebergType, value_result: IcebergType) -> MapType:
+        key_field = map_type.key_field
+        self._field_names.append(MAP_KEY_NAME)
+        key_id = self._field_id(key_field)
+        self._field_names.pop()
+        value_field = map_type.item_field
+        self._field_names.append(MAP_VALUE_NAME)
+        value_id = self._field_id(value_field)
+        self._field_names.pop()
+        return MapType(key_id, key_result, value_id, value_result, value_required=not value_field.nullable)
+
+    def primitive(self, primitive: pa.DataType) -> PrimitiveType:
+        if pa.types.is_boolean(primitive):
+            return BooleanType()
+        elif pa.types.is_integer(primitive):
+            width = primitive.bit_width
+            if width <= 32:
+                return IntegerType()
+            elif width <= 64:
+                return LongType()
+            else:
+                # Does not exist (yet)
+                raise TypeError(f"Unsupported integer type: {primitive}")
+        elif pa.types.is_float32(primitive):
+            return FloatType()
+        elif pa.types.is_float64(primitive):
+            return DoubleType()
+        elif isinstance(primitive, pa.Decimal128Type):
+            primitive = cast(pa.Decimal128Type, primitive)
+            return DecimalType(primitive.precision, primitive.scale)
+        elif pa.types.is_string(primitive) or pa.types.is_large_string(primitive) or pa.types.is_string_view(primitive):
+            return StringType()
+        elif pa.types.is_date32(primitive):
+            return DateType()
+        elif isinstance(primitive, pa.Time64Type) and primitive.unit == "us":
+            return TimeType()
+        elif pa.types.is_timestamp(primitive):
+            primitive = cast(pa.TimestampType, primitive)
+            if primitive.unit in ("s", "ms", "us"):
+                # Supported types, will be upcast automatically to 'us'
+                pass
+            elif primitive.unit == "ns":
+                if self._downcast_ns_timestamp_to_us:
+                    logger.warning("Iceberg does not yet support 'ns' timestamp precision. Downcasting to 'us'.")
+                else:
+                    raise TypeError(
+                        "Iceberg does not yet support 'ns' timestamp precision. Use 'downcast-ns-timestamp-to-us-on-write' configuration property to automatically downcast 'ns' to 'us' on write.",
+                    )
+            else:
+                raise TypeError(f"Unsupported precision for timestamp type: {primitive.unit}")
+
+            if primitive.tz in UTC_ALIASES:
+                return TimestamptzType()
+            elif primitive.tz is None:
+                return TimestampType()
+
+        elif pa.types.is_binary(primitive) or pa.types.is_large_binary(primitive) or pa.types.is_binary_view(primitive):
+            return BinaryType()
+        elif pa.types.is_fixed_size_binary(primitive):
+            primitive = cast(pa.FixedSizeBinaryType, primitive)
+            return FixedType(primitive.byte_width)
+        elif pa.types.is_null(primitive):
+            return UnknownType()
+
+        raise TypeError(f"Unsupported type: {primitive}")
+
+    def before_field(self, field: pa.Field) -> None:
+        self._field_names.append(field.name)
+
+    def after_field(self, field: pa.Field) -> None:
+        self._field_names.pop()
+
+    def before_list_element(self, element: pa.Field) -> None:
+        self._field_names.append(LIST_ELEMENT_NAME)
+
+    def after_list_element(self, element: pa.Field) -> None:
+        self._field_names.pop()
+
+    def before_map_key(self, key: pa.Field) -> None:
+        self._field_names.append(MAP_KEY_NAME)
+
+    def after_map_key(self, element: pa.Field) -> None:
+        self._field_names.pop()
+
+    def before_map_value(self, value: pa.Field) -> None:
+        self._field_names.append(MAP_VALUE_NAME)
+
+    def after_map_value(self, element: pa.Field) -> None:
+        self._field_names.pop()
+
+
+class _ConvertToLargeTypes(PyArrowSchemaVisitor[Union[pa.DataType, pa.Schema]]):
+    def schema(self, schema: pa.Schema, struct_result: pa.StructType) -> pa.Schema:
+        return pa.schema(struct_result)
+
+    def struct(self, struct: pa.StructType, field_results: List[pa.Field]) -> pa.StructType:
+        return pa.struct(field_results)
+
+    def field(self, field: pa.Field, field_result: pa.DataType) -> pa.Field:
+        return field.with_type(field_result)
+
+    def list(self, list_type: pa.ListType, element_result: pa.DataType) -> pa.DataType:
+        return pa.large_list(element_result)
+
+    def map(self, map_type: pa.MapType, key_result: pa.DataType, value_result: pa.DataType) -> pa.DataType:
+        return pa.map_(key_result, value_result)
+
+    def primitive(self, primitive: pa.DataType) -> pa.DataType:
+        if primitive == pa.string():
+            return pa.large_string()
+        elif primitive == pa.binary():
+            return pa.large_binary()
+        return primitive
+
+
+class _ConvertToSmallTypes(PyArrowSchemaVisitor[Union[pa.DataType, pa.Schema]]):
+    def schema(self, schema: pa.Schema, struct_result: pa.StructType) -> pa.Schema:
+        return pa.schema(struct_result)
+
+    def struct(self, struct: pa.StructType, field_results: List[pa.Field]) -> pa.StructType:
+        return pa.struct(field_results)
+
+    def field(self, field: pa.Field, field_result: pa.DataType) -> pa.Field:
+        return field.with_type(field_result)
+
+    def list(self, list_type: pa.ListType, element_result: pa.DataType) -> pa.DataType:
+        return pa.list_(element_result)
+
+    def map(self, map_type: pa.MapType, key_result: pa.DataType, value_result: pa.DataType) -> pa.DataType:
+        return pa.map_(key_result, value_result)
+
+    def primitive(self, primitive: pa.DataType) -> pa.DataType:
+        if primitive == pa.large_string():
+            return pa.string()
+        elif primitive == pa.large_binary():
+            return pa.binary()
+        return primitive
+
+
+class _ConvertToIcebergWithoutIDs(_ConvertToIceberg):
+    """
+    Converts PyArrowSchema to Iceberg Schema with all -1 ids.
+
+    The schema generated through this visitor should always be
+    used in conjunction with `new_table_metadata` function to
+    assign new field ids in order. This is currently used only
+    when creating an Iceberg Schema from a PyArrow schema when
+    creating a new Iceberg table.
+    """
+
+    def _field_id(self, field: pa.Field) -> int:
+        return -1
+
+def pyarrow_to_schema(schema: pa.Schema) -> Schema:
+    has_ids = visit_pyarrow(schema, _HasIds())
+    if has_ids:
+        return visit_pyarrow(schema, _ConvertToIceberg())
+    else:
+        raise ValueError(
+            "Parquet file does not have field-ids and the Iceberg table does not have 'schema.name-mapping.default' defined"
+        )
 
 @singledispatch
 def visit_pyarrow(obj: Union[pa.DataType, pa.Schema], visitor: PyArrowSchemaVisitor[T]) -> T:
-    """A generic function for applying a pyarrow schema visitor to any point within a schema.
+    """Apply a pyarrow schema visitor to any point within a schema.
 
     The function traverses the schema in post-order fashion.
 
@@ -593,92 +890,59 @@ def visit_pyarrow(obj: Union[pa.DataType, pa.Schema], visitor: PyArrowSchemaVisi
     Raises:
         NotImplementedError: If attempting to visit an unrecognized object type.
     """
-    raise NotImplementedError("Cannot visit non-type: %s" % obj)
+    raise NotImplementedError(f"Cannot visit non-type: {obj}")
 
 
 @visit_pyarrow.register(pa.Schema)
-def _(obj: pa.Schema, visitor: PyArrowSchemaVisitor[T]) -> Optional[T]:
-    struct_results: List[Optional[T]] = []
-    for field in obj:
-        visitor.before_field(field)
-        struct_result = visit_pyarrow(field.type, visitor)
-        visitor.after_field(field)
-        struct_results.append(struct_result)
-
-    return visitor.schema(obj, struct_results)
+def _(obj: pa.Schema, visitor: PyArrowSchemaVisitor[T]) -> T:
+    return visitor.schema(obj, visit_pyarrow(pa.struct(obj), visitor))
 
 
 @visit_pyarrow.register(pa.StructType)
-def _(obj: pa.StructType, visitor: PyArrowSchemaVisitor[T]) -> Optional[T]:
-    struct_results: List[Optional[T]] = []
-    for field in obj:
-        visitor.before_field(field)
-        struct_result = visit_pyarrow(field.type, visitor)
-        visitor.after_field(field)
-        struct_results.append(struct_result)
+def _(obj: pa.StructType, visitor: PyArrowSchemaVisitor[T]) -> T:
+    results = [visit_pyarrow(field, visitor) for field in obj]
 
-    return visitor.struct(obj, struct_results)
+    return visitor.struct(obj, results)
 
 
 @visit_pyarrow.register(pa.ListType)
-def _(obj: pa.ListType, visitor: PyArrowSchemaVisitor[T]) -> Optional[T]:
-    visitor.before_field(obj.value_field)
-    list_result = visit_pyarrow(obj.value_field.type, visitor)
-    visitor.after_field(obj.value_field)
-    return visitor.list(obj, list_result)
+@visit_pyarrow.register(pa.FixedSizeListType)
+@visit_pyarrow.register(pa.LargeListType)
+def _(obj: Union[pa.ListType, pa.LargeListType, pa.FixedSizeListType], visitor: PyArrowSchemaVisitor[T]) -> T:
+    visitor.before_list_element(obj.value_field)
+    result = visit_pyarrow(obj.value_type, visitor)
+    visitor.after_list_element(obj.value_field)
+    return visitor.list(obj, result)
 
 
 @visit_pyarrow.register(pa.MapType)
-def _(obj: pa.MapType, visitor: PyArrowSchemaVisitor[T]) -> Optional[T]:
-    visitor.before_field(obj.key_field)
-    key_result = visit_pyarrow(obj.key_field.type, visitor)
-    visitor.after_field(obj.key_field)
-    visitor.before_field(obj.item_field)
-    value_result = visit_pyarrow(obj.item_field.type, visitor)
-    visitor.after_field(obj.item_field)
+def _(obj: pa.MapType, visitor: PyArrowSchemaVisitor[T]) -> T:
+    visitor.before_map_key(obj.key_field)
+    key_result = visit_pyarrow(obj.key_type, visitor)
+    visitor.after_map_key(obj.key_field)
+
+    visitor.before_map_value(obj.item_field)
+    value_result = visit_pyarrow(obj.item_type, visitor)
+    visitor.after_map_value(obj.item_field)
+
     return visitor.map(obj, key_result, value_result)
 
 
-@visit_pyarrow.register(pa.DataType)
-def _(obj: pa.DataType, visitor: PyArrowSchemaVisitor[T]) -> Optional[T]:
-    if pa.types.is_nested(obj):
-        raise TypeError(f"Expected primitive type, got: {type(obj)}")
-    return visitor.primitive(obj)
-
-
-class PyArrowSchemaVisitor(Generic[T], ABC):
-    def before_field(self, field: pa.Field) -> None:
-        """Override this method to perform an action immediately before visiting a field."""
-
-    def after_field(self, field: pa.Field) -> None:
-        """Override this method to perform an action immediately after visiting a field."""
-
-    @abstractmethod
-    def schema(self, schema: pa.Schema, field_results: List[Optional[T]]) -> Optional[T]:
-        """Visit a schema."""
-
-    @abstractmethod
-    def struct(self, struct: pa.StructType, field_results: List[Optional[T]]) -> Optional[T]:
-        """Visit a struct."""
-
-    @abstractmethod
-    def list(self, list_type: pa.ListType, element_result: Optional[T]) -> Optional[T]:
-        """Visit a list."""
-
-    @abstractmethod
-    def map(self, map_type: pa.MapType, key_result: Optional[T], value_result: Optional[T]) -> Optional[T]:
-        """Visit a map."""
-
-    @abstractmethod
-    def primitive(self, primitive: pa.DataType) -> Optional[T]:
-        """Visit a primitive type."""
+@visit_pyarrow.register(pa.DictionaryType)
+def _(obj: pa.DictionaryType, visitor: PyArrowSchemaVisitor[T]) -> T:
+    # Parquet has no dictionary type. dictionary-encoding is handled
+    # as an encoding detail, not as a separate type.
+    # We will follow this approach in determining the Iceberg Type,
+    # as we only support parquet in PyIceberg for now.
+    return visit_pyarrow(obj.value_type, visitor)
 
 
 def _get_field_id(field: pa.Field) -> Optional[int]:
-    for pyarrow_field_id_key in PYARROW_FIELD_ID_KEYS:
-        if field_id_str := field.metadata.get(pyarrow_field_id_key):
-            return int(field_id_str.decode())
-    return None
+    return (
+        int(field_id_str.decode())
+        if (field.metadata and (field_id_str := field.metadata.get(PYARROW_PARQUET_FIELD_ID_KEY)))
+        else None
+    )
 
 
 def _get_field_doc(field: pa.Field) -> Optional[str]:
