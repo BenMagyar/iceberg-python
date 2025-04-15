@@ -163,11 +163,11 @@ class IcebergRootModel(BaseModel, Generic[T]):
         frozen = True
 
     @property
-    def root(self) -> T:
+    def root(self):
         return self.__root__
 
     @root.setter
-    def root(self, value: T) -> None:
+    def root(self, value):
         object.__setattr__(self, '__root__', value)
 
 @lru_cache
