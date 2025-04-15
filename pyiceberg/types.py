@@ -49,6 +49,7 @@ from pydantic import (
     Field,
     PrivateAttr,
     validator,
+    root_validator
 )
 from pydantic_core.core_schema import ValidatorFunctionWrapHandler
 
@@ -121,69 +122,64 @@ def strtobool(val: str) -> bool:
 
 
 class IcebergType(IcebergBaseModel):
-    """Base type for all Iceberg Types.
 
-    Example:
-        >>> str(IcebergType())
-        'IcebergType()'
-        >>> repr(IcebergType())
-        'IcebergType()'
-    """
+    def __new__(cls, *args, **kwargs):
+        if cls is not IcebergType:
+            return super().__new__(cls)
 
-    @model_validator(mode="wrap")
-    @classmethod
-    def handle_primitive_type(cls, v: Any, handler: ValidatorFunctionWrapHandler) -> IcebergType:
-        # Pydantic works mostly around dicts, and there seems to be something
-        # by not serializing into a RootModel, might revisit this.
-        if isinstance(v, str):
-            if v == "boolean":
+        val = args[0] if args else kwargs
+
+        if isinstance(val, str):
+            if val == "boolean":
                 return BooleanType()
-            elif v == "string":
+            elif val == "string":
                 return StringType()
-            elif v == "int":
+            elif val == "int":
                 return IntegerType()
-            elif v == "long":
+            elif val == "long":
                 return LongType()
-            if v == "float":
+            elif val == "float":
                 return FloatType()
-            if v == "double":
+            elif val == "double":
                 return DoubleType()
-            if v == "timestamp":
+            elif val == "timestamp":
                 return TimestampType()
-            if v == "timestamptz":
+            elif val == "timestamptz":
                 return TimestamptzType()
-            if v == "timestamp_ns":
+            elif val == "timestamp_ns":
                 return TimestampNanoType()
-            if v == "timestamptz_ns":
+            elif val == "timestamptz_ns":
                 return TimestamptzNanoType()
-            if v == "date":
+            elif val == "date":
                 return DateType()
-            if v == "time":
+            elif val == "time":
                 return TimeType()
-            if v == "uuid":
+            elif val == "uuid":
                 return UUIDType()
-            if v == "binary":
+            elif val == "binary":
                 return BinaryType()
-            if v == "unknown":
+            elif val == "unknown":
                 return UnknownType()
-            if v.startswith("fixed"):
-                return FixedType(_parse_fixed_type(v))
-            if v.startswith("decimal"):
-                precision, scale = _parse_decimal_type(v)
+            elif val.startswith("fixed"):
+                return FixedType(_parse_fixed_type(val))
+            elif val.startswith("decimal"):
+                precision, scale = _parse_decimal_type(val)
                 return DecimalType(precision, scale)
             else:
-                raise ValueError(f"Type not recognized: {v}")
-        if isinstance(v, dict) and cls == IcebergType:
-            complex_type = v.get("type")
-            if complex_type == "list":
-                return ListType(**v)
-            elif complex_type == "map":
-                return MapType(**v)
-            elif complex_type == "struct":
-                return StructType(**v)
+                raise ValueError(f"Type not recognized: {val}")
+
+        if isinstance(val, dict):
+            t = val.get("type")
+            if t == "list":
+                return ListType(**val)
+            elif t == "map":
+                return MapType(**val)
+            elif t == "struct":
+                return StructType(**val)
             else:
-                return NestedField(**v)
-        return handler(v)
+                return NestedField(**val)
+
+        return super().__new__(cls)
 
     @property
     def is_primitive(self) -> bool:
@@ -193,8 +189,7 @@ class IcebergType(IcebergBaseModel):
     def is_struct(self) -> bool:
         return isinstance(self, StructType)
 
-    def minimum_format_version(self) -> TableVersion:
-        """Minimum Iceberg format version after which this type is supported."""
+    def minimum_format_version(self) -> int:
         return 1
 
 
