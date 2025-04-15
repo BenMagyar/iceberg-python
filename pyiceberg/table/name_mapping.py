@@ -28,13 +28,16 @@ from collections import ChainMap
 from functools import cached_property, singledispatch
 from typing import Any, Dict, Generic, Iterator, List, Optional, TypeVar, Union
 
-from pydantic import Field, conlist, validator, model_serializer
+from pydantic import Field, conlist, validator
 
 from pyiceberg.schema import P, PartnerAccessor, Schema, SchemaVisitor, SchemaWithPartnerVisitor, visit, visit_with_partner
 from pyiceberg.typedef import IcebergBaseModel, IcebergRootModel
 from pyiceberg.types import IcebergType, ListType, MapType, NestedField, PrimitiveType, StructType
 
+from pyiceberg.pydantic import model_serializer, apply_model_serializer
 
+
+@apply_model_serializer
 class MappedField(IcebergBaseModel):
     field_id: Optional[int] = Field(alias="field-id", default=None)
     names: List[str] = conlist(str)

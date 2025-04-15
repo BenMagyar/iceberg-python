@@ -49,7 +49,6 @@ from pydantic import (
     Field,
     PrivateAttr,
     validator,
-    model_serializer,
     model_validator,
 )
 from pydantic_core.core_schema import ValidatorFunctionWrapHandler
@@ -58,6 +57,8 @@ from pyiceberg.exceptions import ValidationError
 from pyiceberg.typedef import IcebergBaseModel, IcebergRootModel, L, TableVersion
 from pyiceberg.utils.parsing import ParseNumberFromBrackets
 from pyiceberg.utils.singleton import Singleton
+
+from pyiceberg.pydantic import model_serializer, apply_model_serializer
 
 DECIMAL_REGEX = re.compile(r"decimal\((\d+),\s*(\d+)\)")
 FIXED = "fixed"
@@ -212,6 +213,7 @@ class PrimitiveType(Singleton, IcebergRootModel[str], IcebergType):
         return self.root
 
 
+@apply_model_serializer
 class FixedType(PrimitiveType):
     """A fixed data type in Iceberg.
 
@@ -250,6 +252,7 @@ class FixedType(PrimitiveType):
         return (self.root,)
 
 
+@apply_model_serializer
 class DecimalType(PrimitiveType):
     """A decimal data type in Iceberg.
 

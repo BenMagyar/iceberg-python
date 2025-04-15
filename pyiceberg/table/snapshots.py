@@ -22,12 +22,14 @@ from collections import defaultdict
 from enum import Enum
 from typing import TYPE_CHECKING, Any, DefaultDict, Dict, Iterable, List, Mapping, Optional
 
-from pydantic import Field, PrivateAttr, model_serializer
+from pydantic import Field, PrivateAttr
 
 from pyiceberg.io import FileIO
 from pyiceberg.manifest import DataFile, DataFileContent, ManifestFile, _manifests
 from pyiceberg.partitioning import UNPARTITIONED_PARTITION_SPEC, PartitionSpec
 from pyiceberg.schema import Schema
+
+from pyiceberg.pydantic import model_serializer, apply_model_serializer
 
 if TYPE_CHECKING:
     from pyiceberg.table.metadata import TableMetadata
@@ -173,6 +175,7 @@ class UpdateMetrics:
         return properties
 
 
+@apply_model_serializer
 class Summary(IcebergBaseModel, Mapping[str, str]):
     """A class that stores the summary information for a Snapshot.
 
