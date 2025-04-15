@@ -111,6 +111,7 @@ from pyiceberg.schema import (
     prune_columns,
     visit,
     visit_with_partner,
+    sanitize_column_names
 )
 from pyiceberg.typedef import EMPTY_DICT, Properties
 from pyiceberg.types import (
@@ -869,9 +870,9 @@ class _ConvertToIcebergWithoutIDs(_ConvertToIceberg):
         return -1
 
 def pyarrow_to_schema(schema: pa.Schema) -> Schema:
-    has_ids = visit_pyarrow(schema, _HasIds())
+    has_ids = sanitize_column_names(visit_pyarrow(schema, _HasIds()))
     if has_ids:
-        return visit_pyarrow(schema, _ConvertToIceberg())
+        return sanitize_column_names(visit_pyarrow(schema, _ConvertToIceberg()))
     else:
         raise ValueError(
             "Parquet file does not have field-ids and the Iceberg table does not have 'schema.name-mapping.default' defined"
@@ -1048,6 +1049,7 @@ def _task_to_table(
         # TODO: if field_ids are not present, Name Mapping should be implemented to look them up in the table schema,
         #  see https://github.com/apache/iceberg/issues/7451
         file_schema = Schema.parse_raw(schema_raw) if schema_raw is not None else pyarrow_to_schema(physical_schema)
+        file_schema = sanitize_column_names(file_schema)
 
         pyarrow_filter = None
         if bound_row_filter is not AlwaysTrue():
