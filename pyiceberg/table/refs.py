@@ -17,10 +17,12 @@
 from enum import Enum
 from typing import Annotated, Optional
 
-from pydantic import Field, model_validator
+from pydantic import Field
 
 from pyiceberg.exceptions import ValidationError
 from pyiceberg.typedef import IcebergBaseModel
+
+from pyiceberg.pydantic import model_validator
 
 MAIN_BRANCH = "main"
 

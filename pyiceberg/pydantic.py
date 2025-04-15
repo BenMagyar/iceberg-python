@@ -1,3 +1,6 @@
+from pydantic import root_validator
+from functools import wraps
+
 def model_serializer(func):
     func._is_model_serializer = True
     return func
@@ -15,3 +18,16 @@ def apply_model_serializer(cls):
             cls.json = _json
             break
     return cls
+
+def model_validator(mode="after"):
+    def decorator(fn):
+        @root_validator(pre=False)
+        @wraps(fn)
+        def wrapper(cls, values):
+            self = cls(**values)
+            result = fn(self)
+            if isinstance(result, cls):
+                return result.dict()
+            raise TypeError("model_validator must return an instance of the model")
+        return wrapper
+    return decorator

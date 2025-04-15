@@ -23,7 +23,7 @@ from datetime import datetime
 from functools import singledispatch
 from typing import TYPE_CHECKING, Annotated, Any, Dict, Generic, List, Literal, Optional, Tuple, TypeVar, Union, cast
 
-from pydantic import Field, validator, model_validator
+from pydantic import Field, validator
 
 from pyiceberg.exceptions import CommitFailedException
 from pyiceberg.partitioning import PARTITION_FIELD_ID_START, PartitionSpec
@@ -47,6 +47,8 @@ from pyiceberg.types import (
 from pyiceberg.utils.datetime import datetime_to_millis
 from pyiceberg.utils.deprecated import deprecation_notice
 from pyiceberg.utils.properties import property_as_int
+
+from pyiceberg.pydantic import model_validator
 
 if TYPE_CHECKING:
     from pyiceberg.table import Transaction

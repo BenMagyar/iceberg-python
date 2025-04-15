@@ -29,7 +29,6 @@ from pydantic import (
     Field,
     PlainSerializer,
     WithJsonSchema,
-    model_validator,
 )
 
 from pyiceberg.schema import Schema
@@ -59,6 +58,8 @@ from pyiceberg.types import (
     UUIDType,
 )
 from pyiceberg.utils.datetime import date_to_days, datetime_to_micros, time_to_micros
+
+from pyiceberg.pydantic import model_validator
 
 INITIAL_PARTITION_SPEC_ID = 0
 PARTITION_FIELD_ID_START: int = 1000

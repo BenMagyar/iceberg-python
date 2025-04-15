@@ -49,7 +49,6 @@ from pydantic import (
     Field,
     PrivateAttr,
     validator,
-    model_validator,
 )
 from pydantic_core.core_schema import ValidatorFunctionWrapHandler
 
@@ -58,7 +57,7 @@ from pyiceberg.typedef import IcebergBaseModel, IcebergRootModel, L, TableVersio
 from pyiceberg.utils.parsing import ParseNumberFromBrackets
 from pyiceberg.utils.singleton import Singleton
 
-from pyiceberg.pydantic import model_serializer, apply_model_serializer
+from pyiceberg.pydantic import model_serializer, apply_model_serializer, model_validator
 
 DECIMAL_REGEX = re.compile(r"decimal\((\d+),\s*(\d+)\)")
 FIXED = "fixed"

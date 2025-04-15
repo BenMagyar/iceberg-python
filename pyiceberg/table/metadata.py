@@ -21,7 +21,7 @@ import uuid
 from copy import copy
 from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
-from pydantic import Field, field_serializer, validator, model_validator
+from pydantic import Field, field_serializer, validator
 from pydantic import ValidationError as PydanticValidationError
 
 from pyiceberg.exceptions import ValidationError
@@ -46,6 +46,8 @@ from pyiceberg.typedef import (
 from pyiceberg.types import NestedField, StructType, transform_dict_value_to_str
 from pyiceberg.utils.config import Config
 from pyiceberg.utils.datetime import datetime_to_millis
+
+from pyiceberg.pydantic import model_validator
 
 CURRENT_SNAPSHOT_ID = "current-snapshot-id"
 CURRENT_SCHEMA_ID = "current-schema-id"

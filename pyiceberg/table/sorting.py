@@ -23,13 +23,14 @@ from pydantic import (
     Field,
     PlainSerializer,
     WithJsonSchema,
-    model_validator,
 )
 
 from pyiceberg.schema import Schema
 from pyiceberg.transforms import IdentityTransform, Transform, parse_transform
 from pyiceberg.typedef import IcebergBaseModel
 from pyiceberg.types import IcebergType
+
+from pyiceberg.pydantic import model_validator
 
 
 class SortDirection(Enum):

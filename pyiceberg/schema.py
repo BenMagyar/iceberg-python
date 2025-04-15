@@ -36,7 +36,7 @@ from typing import (
     Union,
 )
 
-from pydantic import Field, PrivateAttr, model_validator
+from pydantic import Field, PrivateAttr
 
 from pyiceberg.exceptions import ResolveError
 from pyiceberg.typedef import EMPTY_DICT, IcebergBaseModel, StructProtocol
@@ -65,6 +65,8 @@ from pyiceberg.types import (
     UnknownType,
     UUIDType,
 )
+
+from pyiceberg.pydantic import model_validator
 
 if TYPE_CHECKING:
     import pyarrow as pa
