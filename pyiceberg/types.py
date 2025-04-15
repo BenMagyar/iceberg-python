@@ -41,12 +41,13 @@ from typing import (
     Literal,
     Optional,
     Tuple,
+    TypeVar,
+    Generic
 )
 
 from pydantic import (
     Field,
     PrivateAttr,
-    SerializeAsAny,
     field_validator,
     model_serializer,
     model_validator,
@@ -61,6 +62,16 @@ from pyiceberg.utils.singleton import Singleton
 DECIMAL_REGEX = re.compile(r"decimal\((\d+),\s*(\d+)\)")
 FIXED = "fixed"
 FIXED_PARSER = ParseNumberFromBrackets(FIXED)
+
+TSA = TypeVar("TSA")
+
+class SerializeAsAny(Generic[TSA]):
+    """
+    Shim for Pydantic v1 — does nothing, just passes through the type.
+    In v2, it's used to force runtime-type serialization.
+    """
+    def __class_getitem__(cls, item):
+        return item
 
 
 def transform_dict_value_to_str(dict: Dict[str, Any]) -> Dict[str, str]:
