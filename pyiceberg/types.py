@@ -48,7 +48,7 @@ from typing import (
 from pydantic import (
     Field,
     PrivateAttr,
-    field_validator,
+    validator,
     model_serializer,
     model_validator,
 )
@@ -340,7 +340,7 @@ class NestedField(IcebergType):
     initial_default: Optional[Any] = Field(alias="initial-default", default=None, repr=False)
     write_default: Optional[L] = Field(alias="write-default", default=None, repr=False)  # type: ignore
 
-    @field_validator("field_type", mode="before")
+    @validator("field_type", pre=True)
     def convert_field_type(cls, v: Any) -> IcebergType:
         """Convert string values into IcebergType instances."""
         if isinstance(v, str):

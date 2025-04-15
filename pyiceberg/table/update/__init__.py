@@ -23,7 +23,7 @@ from datetime import datetime
 from functools import singledispatch
 from typing import TYPE_CHECKING, Annotated, Any, Dict, Generic, List, Literal, Optional, Tuple, TypeVar, Union, cast
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, validator, model_validator
 
 from pyiceberg.exceptions import CommitFailedException
 from pyiceberg.partitioning import PARTITION_FIELD_ID_START, PartitionSpec
@@ -165,7 +165,7 @@ class SetPropertiesUpdate(IcebergBaseModel):
     action: Literal["set-properties"] = Field(default="set-properties")
     updates: Dict[str, str]
 
-    @field_validator("updates", mode="before")
+    @validator("updates", pre=True)
     def transform_properties_dict_value_to_str(cls, properties: Properties) -> Dict[str, str]:
         return transform_dict_value_to_str(properties)
 

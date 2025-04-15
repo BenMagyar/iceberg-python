@@ -28,7 +28,7 @@ from collections import ChainMap
 from functools import cached_property, singledispatch
 from typing import Any, Dict, Generic, Iterator, List, Optional, TypeVar, Union
 
-from pydantic import Field, conlist, field_validator, model_serializer
+from pydantic import Field, conlist, validator, model_serializer
 
 from pyiceberg.schema import P, PartnerAccessor, Schema, SchemaVisitor, SchemaWithPartnerVisitor, visit, visit_with_partner
 from pyiceberg.typedef import IcebergBaseModel, IcebergRootModel
@@ -40,7 +40,7 @@ class MappedField(IcebergBaseModel):
     names: List[str] = conlist(str)
     fields: List[MappedField] = Field(default_factory=list)
 
-    @field_validator("fields", mode="before")
+    @validator("fields", pre=True)
     @classmethod
     def convert_null_to_empty_List(cls, v: Any) -> Any:
         return v or []

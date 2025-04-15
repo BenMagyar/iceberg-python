@@ -21,7 +21,7 @@ import uuid
 from copy import copy
 from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
-from pydantic import Field, field_serializer, field_validator, model_validator
+from pydantic import Field, field_serializer, validator, model_validator
 from pydantic import ValidationError as PydanticValidationError
 
 from pyiceberg.exceptions import ValidationError
@@ -223,7 +223,7 @@ class TableMetadataCommonFields(IcebergBaseModel):
     associated with different table snapshots."""
 
     # validators
-    @field_validator("properties", mode="before")
+    @validator("properties", pre=True)
     def transform_properties_dict_value_to_str(cls, properties: Properties) -> Dict[str, str]:
         return transform_dict_value_to_str(properties)
 

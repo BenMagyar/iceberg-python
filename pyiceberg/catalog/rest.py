@@ -29,7 +29,7 @@ from typing import (
     Union,
 )
 
-from pydantic import Field, ValidationError, field_validator
+from pydantic import Field, ValidationError, validator
 from requests import HTTPError, Session
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt
 
@@ -171,7 +171,7 @@ class CreateTableRequest(IcebergBaseModel):
     properties: Dict[str, str] = Field(default_factory=dict)
 
     # validators
-    @field_validator("properties", mode="before")
+    @validator("properties", pre=True)
     def transform_properties_dict_value_to_str(cls, properties: Properties) -> Dict[str, str]:
         return transform_dict_value_to_str(properties)
 
