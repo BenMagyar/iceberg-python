@@ -153,7 +153,7 @@ class IcebergBaseModel(BaseModel):
 T = TypeVar("T")
 
 class IcebergRootModel(BaseModel, Generic[T]):
-    __root__: T
+    root: T  # this is now a real model field!
 
     class Config:
         allow_population_by_field_name = True
@@ -162,13 +162,12 @@ class IcebergRootModel(BaseModel, Generic[T]):
         exclude_none = True
         frozen = True
 
-    @property
-    def root(self):
-        return self.__root__
+    def dict(self, *args, **kwargs):
+        return self.root  # ✅ root-like behavior
 
-    @root.setter
-    def root(self, value):
-        object.__setattr__(self, '__root__', value)
+    def json(self, *args, **kwargs):
+        import json
+        return json.dumps(self.root)
 
 @lru_cache
 def _get_struct_fields(struct_type: StructType) -> Tuple[str, ...]:
