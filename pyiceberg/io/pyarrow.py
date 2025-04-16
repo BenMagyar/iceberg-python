@@ -22,6 +22,7 @@ by PyArrow. It relies on PyArrow's `from_uri` method that infers the correct fil
 type to use. Theoretically, this allows the supported storage types to grow naturally
 with the pyarrow library.
 """
+
 from __future__ import annotations
 
 import concurrent.futures
@@ -111,7 +112,7 @@ from pyiceberg.schema import (
     prune_columns,
     visit,
     visit_with_partner,
-    sanitize_column_names
+    sanitize_column_names,
 )
 from pyiceberg.typedef import EMPTY_DICT, Properties
 from pyiceberg.types import (
@@ -139,9 +140,7 @@ from pyiceberg.types import (
 from pyiceberg.utils.concurrent import ExecutorFactory
 from pyiceberg.utils.datetime import millis_to_datetime
 from pyiceberg.utils.singleton import Singleton
-
-if TYPE_CHECKING:
-    from pyiceberg.table import FileScanTask, Table
+from pyiceberg.table import FileScanTask, Table
 
 ONE_MEGABYTE = 1024 * 1024
 BUFFER_SIZE = "buffer-size"
@@ -186,7 +185,9 @@ class PyArrowFile(InputFile, OutputFile):
     _path: str
     _buffer_size: int
 
-    def __init__(self, location: str, path: str, fs: FileSystem, buffer_size: int = ONE_MEGABYTE):
+    def __init__(
+        self, location: str, path: str, fs: FileSystem, buffer_size: int = ONE_MEGABYTE
+    ):
         self._filesystem = fs
         self._path = path
         self._buffer_size = buffer_size
@@ -203,11 +204,15 @@ class PyArrowFile(InputFile, OutputFile):
             file_info = self._filesystem.get_file_info(self._path)
         except OSError as e:
             if e.errno == 13 or "AWS Error [code 15]" in str(e):
-                raise PermissionError(f"Cannot get file info, access denied: {self.location}") from e
+                raise PermissionError(
+                    f"Cannot get file info, access denied: {self.location}"
+                ) from e
             raise  # pragma: no cover - If some other kind of OSError, raise the raw error
 
         if file_info.type == FileType.NotFound:
-            raise FileNotFoundError(f"Cannot get file info, file not found: {self.location}")
+            raise FileNotFoundError(
+                f"Cannot get file info, file not found: {self.location}"
+            )
         return file_info
 
     def __len__(self) -> int:
@@ -241,16 +246,22 @@ class PyArrowFile(InputFile, OutputFile):
             if seekable:
                 input_file = self._filesystem.open_input_file(self._path)
             else:
-                input_file = self._filesystem.open_input_stream(self._path, buffer_size=self._buffer_size)
+                input_file = self._filesystem.open_input_stream(
+                    self._path, buffer_size=self._buffer_size
+                )
         except FileNotFoundError:
             raise
         except PermissionError:
             raise
         except OSError as e:
             if e.errno == 2 or "Path does not exist" in str(e):
-                raise FileNotFoundError(f"Cannot open file, does not exist: {self.location}") from e
+                raise FileNotFoundError(
+                    f"Cannot open file, does not exist: {self.location}"
+                ) from e
             elif e.errno == 13 or "AWS Error [code 15]" in str(e):
-                raise PermissionError(f"Cannot open file, access denied: {self.location}") from e
+                raise PermissionError(
+                    f"Cannot open file, access denied: {self.location}"
+                ) from e
             raise  # pragma: no cover - If some other kind of OSError, raise the raw error
         return input_file
 
@@ -275,13 +286,19 @@ class PyArrowFile(InputFile, OutputFile):
         """
         try:
             if not overwrite and self.exists() is True:
-                raise FileExistsError(f"Cannot create file, already exists: {self.location}")
-            output_file = self._filesystem.open_output_stream(self._path, buffer_size=self._buffer_size)
+                raise FileExistsError(
+                    f"Cannot create file, already exists: {self.location}"
+                )
+            output_file = self._filesystem.open_output_stream(
+                self._path, buffer_size=self._buffer_size
+            )
         except PermissionError:
             raise
         except OSError as e:
             if e.errno == 13 or "AWS Error [code 15]" in str(e):
-                raise PermissionError(f"Cannot create file, access denied: {self.location}") from e
+                raise PermissionError(
+                    f"Cannot create file, access denied: {self.location}"
+                ) from e
             raise  # pragma: no cover - If some other kind of OSError, raise the raw error
         return output_file
 
@@ -304,7 +321,9 @@ class PyArrowFileIO(FileIO):
     def parse_location(location: str) -> Tuple[str, str]:
         """Returns the path without the scheme."""
         uri = urlparse(location)
-        return uri.scheme or "file", os.path.abspath(location) if not uri.scheme else f"{uri.netloc}{uri.path}"
+        return uri.scheme or "file", os.path.abspath(
+            location
+        ) if not uri.scheme else f"{uri.netloc}{uri.path}"
 
     def _get_fs(self, scheme: str) -> FileSystem:
         if scheme in {"s3", "s3a", "s3n"}:
@@ -333,7 +352,9 @@ class PyArrowFileIO(FileIO):
             if access_token := self.properties.get(GCS_TOKEN):
                 gcs_kwargs["access_token"] = access_token
             if expiration := self.properties.get(GCS_TOKEN_EXPIRES_AT_MS):
-                gcs_kwargs["credential_token_expiration"] = millis_to_datetime(int(expiration))
+                gcs_kwargs["credential_token_expiration"] = millis_to_datetime(
+                    int(expiration)
+                )
             if bucket_location := self.properties.get(GCS_DEFAULT_LOCATION):
                 gcs_kwargs["default_bucket_location"] = bucket_location
             if endpoint := self.properties.get(GCS_ENDPOINT):
@@ -357,7 +378,12 @@ class PyArrowFileIO(FileIO):
         """
         scheme, path = self.parse_location(location)
         fs = self._get_fs(scheme)
-        return PyArrowFile(fs=fs, location=location, path=path, buffer_size=int(self.properties.get(BUFFER_SIZE, ONE_MEGABYTE)))
+        return PyArrowFile(
+            fs=fs,
+            location=location,
+            path=path,
+            buffer_size=int(self.properties.get(BUFFER_SIZE, ONE_MEGABYTE)),
+        )
 
     def new_output(self, location: str) -> PyArrowFile:
         """Get a PyArrowFile instance to write bytes to the file at the given location.
@@ -370,7 +396,12 @@ class PyArrowFileIO(FileIO):
         """
         scheme, path = self.parse_location(location)
         fs = self._get_fs(scheme)
-        return PyArrowFile(fs=fs, location=location, path=path, buffer_size=int(self.properties.get(BUFFER_SIZE, ONE_MEGABYTE)))
+        return PyArrowFile(
+            fs=fs,
+            location=location,
+            path=path,
+            buffer_size=int(self.properties.get(BUFFER_SIZE, ONE_MEGABYTE)),
+        )
 
     def delete(self, location: Union[str, InputFile, OutputFile]) -> None:
         """Delete the file at the given location.
@@ -384,7 +415,11 @@ class PyArrowFileIO(FileIO):
             PermissionError: If the file at the provided location cannot be accessed due to a permission error such as
                 an AWS error code 15.
         """
-        str_location = location.location if isinstance(location, (InputFile, OutputFile)) else location
+        str_location = (
+            location.location
+            if isinstance(location, (InputFile, OutputFile))
+            else location
+        )
         scheme, path = self.parse_location(str_location)
         fs = self._get_fs(scheme)
 
@@ -396,9 +431,13 @@ class PyArrowFileIO(FileIO):
             raise
         except OSError as e:
             if e.errno == 2 or "Path does not exist" in str(e):
-                raise FileNotFoundError(f"Cannot delete file, does not exist: {location}") from e
+                raise FileNotFoundError(
+                    f"Cannot delete file, does not exist: {location}"
+                ) from e
             elif e.errno == 13 or "AWS Error [code 15]" in str(e):
-                raise PermissionError(f"Cannot delete file, access denied: {location}") from e
+                raise PermissionError(
+                    f"Cannot delete file, access denied: {location}"
+                ) from e
             raise  # pragma: no cover - If some other kind of OSError, raise the raw error
 
 
@@ -413,7 +452,9 @@ def schema_to_pyarrow(
 class _ConvertToArrowSchema(SchemaVisitorPerPrimitiveType[pa.DataType], Singleton):
     _metadata: Dict[bytes, bytes]
 
-    def __init__(self, metadata: Dict[bytes, bytes] = EMPTY_DICT, include_field_ids: bool = True) -> None:
+    def __init__(
+        self, metadata: Dict[bytes, bytes] = EMPTY_DICT, include_field_ids: bool = True
+    ) -> None:
         self._metadata = metadata
         self._include_field_ids = include_field_ids
 
@@ -441,7 +482,9 @@ class _ConvertToArrowSchema(SchemaVisitorPerPrimitiveType[pa.DataType], Singleto
         element_field = self.field(list_type.element_field, element_result)
         return pa.large_list(value_type=element_field)
 
-    def map(self, map_type: MapType, key_result: pa.DataType, value_result: pa.DataType) -> pa.DataType:
+    def map(
+        self, map_type: MapType, key_result: pa.DataType, value_result: pa.DataType
+    ) -> pa.DataType:
         key_field = self.field(map_type.key_field, key_result)
         value_field = self.field(map_type.value_field, value_result)
         return pa.map_(key_type=key_field, item_type=value_field)
@@ -501,7 +544,6 @@ class _ConvertToArrowSchema(SchemaVisitorPerPrimitiveType[pa.DataType], Singleto
         return pa.large_binary()
 
 
-
 def _convert_scalar(value: Any, iceberg_type: IcebergType) -> pa.scalar:
     if not isinstance(iceberg_type, PrimitiveType):
         raise ValueError(f"Expected primitive type, got: {iceberg_type}")
@@ -509,12 +551,20 @@ def _convert_scalar(value: Any, iceberg_type: IcebergType) -> pa.scalar:
 
 
 class _ConvertToArrowExpression(BoundBooleanExpressionVisitor[pc.Expression]):
-    def visit_in(self, term: BoundTerm[pc.Expression], literals: Set[Any]) -> pc.Expression:
-        pyarrow_literals = pa.array(literals, type=schema_to_pyarrow(term.ref().field.field_type))
+    def visit_in(
+        self, term: BoundTerm[pc.Expression], literals: Set[Any]
+    ) -> pc.Expression:
+        pyarrow_literals = pa.array(
+            literals, type=schema_to_pyarrow(term.ref().field.field_type)
+        )
         return pc.field(term.ref().field.name).isin(pyarrow_literals)
 
-    def visit_not_in(self, term: BoundTerm[pc.Expression], literals: Set[Any]) -> pc.Expression:
-        pyarrow_literals = pa.array(literals, type=schema_to_pyarrow(term.ref().field.field_type))
+    def visit_not_in(
+        self, term: BoundTerm[pc.Expression], literals: Set[Any]
+    ) -> pc.Expression:
+        pyarrow_literals = pa.array(
+            literals, type=schema_to_pyarrow(term.ref().field.field_type)
+        )
         return ~pc.field(term.ref().field.name).isin(pyarrow_literals)
 
     def visit_is_nan(self, term: BoundTerm[Any]) -> pc.Expression:
@@ -532,27 +582,53 @@ class _ConvertToArrowExpression(BoundBooleanExpressionVisitor[pc.Expression]):
         return pc.field(term.ref().field.name).is_valid()
 
     def visit_equal(self, term: BoundTerm[Any], literal: Literal[Any]) -> pc.Expression:
-        return pc.field(term.ref().field.name) == _convert_scalar(literal.value, term.ref().field.field_type)
+        return pc.field(term.ref().field.name) == _convert_scalar(
+            literal.value, term.ref().field.field_type
+        )
 
-    def visit_not_equal(self, term: BoundTerm[Any], literal: Literal[Any]) -> pc.Expression:
-        return pc.field(term.ref().field.name) != _convert_scalar(literal.value, term.ref().field.field_type)
+    def visit_not_equal(
+        self, term: BoundTerm[Any], literal: Literal[Any]
+    ) -> pc.Expression:
+        return pc.field(term.ref().field.name) != _convert_scalar(
+            literal.value, term.ref().field.field_type
+        )
 
-    def visit_greater_than_or_equal(self, term: BoundTerm[Any], literal: Literal[Any]) -> pc.Expression:
-        return pc.field(term.ref().field.name) >= _convert_scalar(literal.value, term.ref().field.field_type)
+    def visit_greater_than_or_equal(
+        self, term: BoundTerm[Any], literal: Literal[Any]
+    ) -> pc.Expression:
+        return pc.field(term.ref().field.name) >= _convert_scalar(
+            literal.value, term.ref().field.field_type
+        )
 
-    def visit_greater_than(self, term: BoundTerm[Any], literal: Literal[Any]) -> pc.Expression:
-        return pc.field(term.ref().field.name) > _convert_scalar(literal.value, term.ref().field.field_type)
+    def visit_greater_than(
+        self, term: BoundTerm[Any], literal: Literal[Any]
+    ) -> pc.Expression:
+        return pc.field(term.ref().field.name) > _convert_scalar(
+            literal.value, term.ref().field.field_type
+        )
 
-    def visit_less_than(self, term: BoundTerm[Any], literal: Literal[Any]) -> pc.Expression:
-        return pc.field(term.ref().field.name) < _convert_scalar(literal.value, term.ref().field.field_type)
+    def visit_less_than(
+        self, term: BoundTerm[Any], literal: Literal[Any]
+    ) -> pc.Expression:
+        return pc.field(term.ref().field.name) < _convert_scalar(
+            literal.value, term.ref().field.field_type
+        )
 
-    def visit_less_than_or_equal(self, term: BoundTerm[Any], literal: Literal[Any]) -> pc.Expression:
-        return pc.field(term.ref().field.name) <= _convert_scalar(literal.value, term.ref().field.field_type)
+    def visit_less_than_or_equal(
+        self, term: BoundTerm[Any], literal: Literal[Any]
+    ) -> pc.Expression:
+        return pc.field(term.ref().field.name) <= _convert_scalar(
+            literal.value, term.ref().field.field_type
+        )
 
-    def visit_starts_with(self, term: BoundTerm[Any], literal: Literal[Any]) -> pc.Expression:
+    def visit_starts_with(
+        self, term: BoundTerm[Any], literal: Literal[Any]
+    ) -> pc.Expression:
         return pc.starts_with(pc.field(term.ref().field.name), literal.value)
 
-    def visit_not_starts_with(self, term: BoundTerm[Any], literal: Literal[Any]) -> pc.Expression:
+    def visit_not_starts_with(
+        self, term: BoundTerm[Any], literal: Literal[Any]
+    ) -> pc.Expression:
         return ~pc.starts_with(pc.field(term.ref().field.name), literal.value)
 
     def visit_true(self) -> pc.Expression:
@@ -564,10 +640,14 @@ class _ConvertToArrowExpression(BoundBooleanExpressionVisitor[pc.Expression]):
     def visit_not(self, child_result: pc.Expression) -> pc.Expression:
         return ~child_result
 
-    def visit_and(self, left_result: pc.Expression, right_result: pc.Expression) -> pc.Expression:
+    def visit_and(
+        self, left_result: pc.Expression, right_result: pc.Expression
+    ) -> pc.Expression:
         return left_result & right_result
 
-    def visit_or(self, left_result: pc.Expression, right_result: pc.Expression) -> pc.Expression:
+    def visit_or(
+        self, left_result: pc.Expression, right_result: pc.Expression
+    ) -> pc.Expression:
         return left_result | right_result
 
 
@@ -576,21 +656,33 @@ def expression_to_pyarrow(expr: BooleanExpression) -> pc.Expression:
 
 
 @lru_cache
-def _get_file_format(file_format: FileFormat, **kwargs: Dict[str, Any]) -> ds.FileFormat:
+def _get_file_format(
+    file_format: FileFormat, **kwargs: Dict[str, Any]
+) -> ds.FileFormat:
     if file_format == FileFormat.PARQUET:
         return ds.ParquetFileFormat(**kwargs)
     else:
         raise ValueError(f"Unsupported file format: {file_format}")
 
 
-def _construct_fragment(fs: FileSystem, data_file: DataFile, file_format_kwargs: Dict[str, Any] = EMPTY_DICT) -> ds.Fragment:
+def _construct_fragment(
+    fs: FileSystem, data_file: DataFile, file_format_kwargs: Dict[str, Any] = EMPTY_DICT
+) -> ds.Fragment:
     _, path = PyArrowFileIO.parse_location(data_file.file_path)
-    return _get_file_format(data_file.file_format, **file_format_kwargs).make_fragment(path, fs)
+    return _get_file_format(data_file.file_format, **file_format_kwargs).make_fragment(
+        path, fs
+    )
 
 
 def _read_deletes(fs: FileSystem, data_file: DataFile) -> Dict[str, pa.ChunkedArray]:
     delete_fragment = _construct_fragment(
-        fs, data_file, file_format_kwargs={"dictionary_columns": ("file_path",), "pre_buffer": True, "buffer_size": ONE_MEGABYTE}
+        fs,
+        data_file,
+        file_format_kwargs={
+            "dictionary_columns": ("file_path",),
+            "pre_buffer": True,
+            "buffer_size": ONE_MEGABYTE,
+        },
     )
     table = ds.Scanner.from_fragment(fragment=delete_fragment).to_table()
     table = table.unify_dictionaries()
@@ -600,11 +692,15 @@ def _read_deletes(fs: FileSystem, data_file: DataFile) -> Dict[str, pa.ChunkedAr
     }
 
 
-def _combine_positional_deletes(positional_deletes: List[pa.ChunkedArray], rows: int) -> pa.Array:
+def _combine_positional_deletes(
+    positional_deletes: List[pa.ChunkedArray], rows: int
+) -> pa.Array:
     if len(positional_deletes) == 1:
         all_chunks = positional_deletes[0]
     else:
-        all_chunks = pa.chunked_array(chain(*[arr.chunks for arr in positional_deletes]))
+        all_chunks = pa.chunked_array(
+            chain(*[arr.chunks for arr in positional_deletes])
+        )
     return np.setdiff1d(np.arange(rows), all_chunks, assume_unique=False)
 
 
@@ -657,6 +753,7 @@ class PyArrowSchemaVisitor(Generic[T], ABC):
     def primitive(self, primitive: pa.DataType) -> T:
         """Visit a primitive type."""
 
+
 class _HasIds(PyArrowSchemaVisitor[bool]):
     def schema(self, schema: pa.Schema, struct_result: bool) -> bool:
         return struct_result
@@ -682,6 +779,7 @@ class _HasIds(PyArrowSchemaVisitor[bool]):
     def primitive(self, primitive: pa.DataType) -> bool:
         return True
 
+
 class _ConvertToIceberg(PyArrowSchemaVisitor[Union[IcebergType, Schema]]):
     """Converts PyArrowSchema to Iceberg Schema. Applies the IDs from name_mapping if provided."""
 
@@ -695,28 +793,45 @@ class _ConvertToIceberg(PyArrowSchemaVisitor[Union[IcebergType, Schema]]):
         if (field_id := _get_field_id(field)) is not None:
             return field_id
         else:
-            raise ValueError(f"Cannot convert {field} to Iceberg Field as field_id is empty.")
+            raise ValueError(
+                f"Cannot convert {field} to Iceberg Field as field_id is empty."
+            )
 
     def schema(self, schema: pa.Schema, struct_result: StructType) -> Schema:
         return Schema(*struct_result.fields)
 
-    def struct(self, struct: pa.StructType, field_results: List[NestedField]) -> StructType:
+    def struct(
+        self, struct: pa.StructType, field_results: List[NestedField]
+    ) -> StructType:
         return StructType(*field_results)
 
     def field(self, field: pa.Field, field_result: IcebergType) -> NestedField:
         field_id = self._field_id(field)
-        field_doc = doc_str.decode() if (field.metadata and (doc_str := field.metadata.get(PYARROW_FIELD_DOC_KEY))) else None
+        field_doc = (
+            doc_str.decode()
+            if (
+                field.metadata
+                and (doc_str := field.metadata.get(PYARROW_FIELD_DOC_KEY))
+            )
+            else None
+        )
         field_type = field_result
-        return NestedField(field_id, field.name, field_type, required=not field.nullable, doc=field_doc)
+        return NestedField(
+            field_id, field.name, field_type, required=not field.nullable, doc=field_doc
+        )
 
     def list(self, list_type: pa.ListType, element_result: IcebergType) -> ListType:
         element_field = list_type.value_field
         self._field_names.append(LIST_ELEMENT_NAME)
         element_id = self._field_id(element_field)
         self._field_names.pop()
-        return ListType(element_id, element_result, element_required=not element_field.nullable)
+        return ListType(
+            element_id, element_result, element_required=not element_field.nullable
+        )
 
-    def map(self, map_type: pa.MapType, key_result: IcebergType, value_result: IcebergType) -> MapType:
+    def map(
+        self, map_type: pa.MapType, key_result: IcebergType, value_result: IcebergType
+    ) -> MapType:
         key_field = map_type.key_field
         self._field_names.append(MAP_KEY_NAME)
         key_id = self._field_id(key_field)
@@ -725,7 +840,13 @@ class _ConvertToIceberg(PyArrowSchemaVisitor[Union[IcebergType, Schema]]):
         self._field_names.append(MAP_VALUE_NAME)
         value_id = self._field_id(value_field)
         self._field_names.pop()
-        return MapType(key_id, key_result, value_id, value_result, value_required=not value_field.nullable)
+        return MapType(
+            key_id,
+            key_result,
+            value_id,
+            value_result,
+            value_required=not value_field.nullable,
+        )
 
     def primitive(self, primitive: pa.DataType) -> PrimitiveType:
         if pa.types.is_boolean(primitive):
@@ -746,7 +867,11 @@ class _ConvertToIceberg(PyArrowSchemaVisitor[Union[IcebergType, Schema]]):
         elif isinstance(primitive, pa.Decimal128Type):
             primitive = cast(pa.Decimal128Type, primitive)
             return DecimalType(primitive.precision, primitive.scale)
-        elif pa.types.is_string(primitive) or pa.types.is_large_string(primitive) or pa.types.is_string_view(primitive):
+        elif (
+            pa.types.is_string(primitive)
+            or pa.types.is_large_string(primitive)
+            or pa.types.is_string_view(primitive)
+        ):
             return StringType()
         elif pa.types.is_date32(primitive):
             return DateType()
@@ -759,20 +884,28 @@ class _ConvertToIceberg(PyArrowSchemaVisitor[Union[IcebergType, Schema]]):
                 pass
             elif primitive.unit == "ns":
                 if self._downcast_ns_timestamp_to_us:
-                    logger.warning("Iceberg does not yet support 'ns' timestamp precision. Downcasting to 'us'.")
+                    logger.warning(
+                        "Iceberg does not yet support 'ns' timestamp precision. Downcasting to 'us'."
+                    )
                 else:
                     raise TypeError(
                         "Iceberg does not yet support 'ns' timestamp precision. Use 'downcast-ns-timestamp-to-us-on-write' configuration property to automatically downcast 'ns' to 'us' on write.",
                     )
             else:
-                raise TypeError(f"Unsupported precision for timestamp type: {primitive.unit}")
+                raise TypeError(
+                    f"Unsupported precision for timestamp type: {primitive.unit}"
+                )
 
             if primitive.tz in UTC_ALIASES:
                 return TimestamptzType()
             elif primitive.tz is None:
                 return TimestampType()
 
-        elif pa.types.is_binary(primitive) or pa.types.is_large_binary(primitive) or pa.types.is_binary_view(primitive):
+        elif (
+            pa.types.is_binary(primitive)
+            or pa.types.is_large_binary(primitive)
+            or pa.types.is_binary_view(primitive)
+        ):
             return BinaryType()
         elif pa.types.is_fixed_size_binary(primitive):
             primitive = cast(pa.FixedSizeBinaryType, primitive)
@@ -811,7 +944,9 @@ class _ConvertToLargeTypes(PyArrowSchemaVisitor[Union[pa.DataType, pa.Schema]]):
     def schema(self, schema: pa.Schema, struct_result: pa.StructType) -> pa.Schema:
         return pa.schema(struct_result)
 
-    def struct(self, struct: pa.StructType, field_results: List[pa.Field]) -> pa.StructType:
+    def struct(
+        self, struct: pa.StructType, field_results: List[pa.Field]
+    ) -> pa.StructType:
         return pa.struct(field_results)
 
     def field(self, field: pa.Field, field_result: pa.DataType) -> pa.Field:
@@ -820,7 +955,9 @@ class _ConvertToLargeTypes(PyArrowSchemaVisitor[Union[pa.DataType, pa.Schema]]):
     def list(self, list_type: pa.ListType, element_result: pa.DataType) -> pa.DataType:
         return pa.large_list(element_result)
 
-    def map(self, map_type: pa.MapType, key_result: pa.DataType, value_result: pa.DataType) -> pa.DataType:
+    def map(
+        self, map_type: pa.MapType, key_result: pa.DataType, value_result: pa.DataType
+    ) -> pa.DataType:
         return pa.map_(key_result, value_result)
 
     def primitive(self, primitive: pa.DataType) -> pa.DataType:
@@ -835,7 +972,9 @@ class _ConvertToSmallTypes(PyArrowSchemaVisitor[Union[pa.DataType, pa.Schema]]):
     def schema(self, schema: pa.Schema, struct_result: pa.StructType) -> pa.Schema:
         return pa.schema(struct_result)
 
-    def struct(self, struct: pa.StructType, field_results: List[pa.Field]) -> pa.StructType:
+    def struct(
+        self, struct: pa.StructType, field_results: List[pa.Field]
+    ) -> pa.StructType:
         return pa.struct(field_results)
 
     def field(self, field: pa.Field, field_result: pa.DataType) -> pa.Field:
@@ -844,7 +983,9 @@ class _ConvertToSmallTypes(PyArrowSchemaVisitor[Union[pa.DataType, pa.Schema]]):
     def list(self, list_type: pa.ListType, element_result: pa.DataType) -> pa.DataType:
         return pa.list_(element_result)
 
-    def map(self, map_type: pa.MapType, key_result: pa.DataType, value_result: pa.DataType) -> pa.DataType:
+    def map(
+        self, map_type: pa.MapType, key_result: pa.DataType, value_result: pa.DataType
+    ) -> pa.DataType:
         return pa.map_(key_result, value_result)
 
     def primitive(self, primitive: pa.DataType) -> pa.DataType:
@@ -869,6 +1010,7 @@ class _ConvertToIcebergWithoutIDs(_ConvertToIceberg):
     def _field_id(self, field: pa.Field) -> int:
         return -1
 
+
 def pyarrow_to_schema(schema: pa.Schema) -> Schema:
     has_ids = sanitize_column_names(visit_pyarrow(schema, _HasIds()))
     if has_ids:
@@ -878,8 +1020,11 @@ def pyarrow_to_schema(schema: pa.Schema) -> Schema:
             "Parquet file does not have field-ids and the Iceberg table does not have 'schema.name-mapping.default' defined"
         )
 
+
 @singledispatch
-def visit_pyarrow(obj: Union[pa.DataType, pa.Schema], visitor: PyArrowSchemaVisitor[T]) -> T:
+def visit_pyarrow(
+    obj: Union[pa.DataType, pa.Schema], visitor: PyArrowSchemaVisitor[T]
+) -> T:
     """Apply a pyarrow schema visitor to any point within a schema.
 
     The function traverses the schema in post-order fashion.
@@ -909,7 +1054,10 @@ def _(obj: pa.StructType, visitor: PyArrowSchemaVisitor[T]) -> T:
 @visit_pyarrow.register(pa.ListType)
 @visit_pyarrow.register(pa.FixedSizeListType)
 @visit_pyarrow.register(pa.LargeListType)
-def _(obj: Union[pa.ListType, pa.LargeListType, pa.FixedSizeListType], visitor: PyArrowSchemaVisitor[T]) -> T:
+def _(
+    obj: Union[pa.ListType, pa.LargeListType, pa.FixedSizeListType],
+    visitor: PyArrowSchemaVisitor[T],
+) -> T:
     visitor.before_list_element(obj.value_field)
     result = visit_pyarrow(obj.value_type, visitor)
     visitor.after_list_element(obj.value_field)
@@ -941,7 +1089,10 @@ def _(obj: pa.DictionaryType, visitor: PyArrowSchemaVisitor[T]) -> T:
 def _get_field_id(field: pa.Field) -> Optional[int]:
     return (
         int(field_id_str.decode())
-        if (field.metadata and (field_id_str := field.metadata.get(PYARROW_PARQUET_FIELD_ID_KEY)))
+        if (
+            field.metadata
+            and (field_id_str := field.metadata.get(PYARROW_PARQUET_FIELD_ID_KEY))
+        )
         else None
     )
 
@@ -954,38 +1105,72 @@ def _get_field_doc(field: pa.Field) -> Optional[str]:
 
 
 class _ConvertToIceberg(PyArrowSchemaVisitor[Union[IcebergType, Schema]]):
-    def _convert_fields(self, arrow_fields: Iterable[pa.Field], field_results: List[Optional[IcebergType]]) -> List[NestedField]:
+    def _convert_fields(
+        self,
+        arrow_fields: Iterable[pa.Field],
+        field_results: List[Optional[IcebergType]],
+    ) -> List[NestedField]:
         fields = []
         for i, field in enumerate(arrow_fields):
             field_id = _get_field_id(field)
             field_doc = _get_field_doc(field)
             field_type = field_results[i]
             if field_type is not None and field_id is not None:
-                fields.append(NestedField(field_id, field.name, field_type, required=not field.nullable, doc=field_doc))
+                fields.append(
+                    NestedField(
+                        field_id,
+                        field.name,
+                        field_type,
+                        required=not field.nullable,
+                        doc=field_doc,
+                    )
+                )
         return fields
 
-    def schema(self, schema: pa.Schema, field_results: List[Optional[IcebergType]]) -> Schema:
+    def schema(
+        self, schema: pa.Schema, field_results: List[Optional[IcebergType]]
+    ) -> Schema:
         return Schema(*self._convert_fields(schema, field_results))
 
-    def struct(self, struct: pa.StructType, field_results: List[Optional[IcebergType]]) -> IcebergType:
+    def struct(
+        self, struct: pa.StructType, field_results: List[Optional[IcebergType]]
+    ) -> IcebergType:
         return StructType(*self._convert_fields(struct, field_results))
 
-    def list(self, list_type: pa.ListType, element_result: Optional[IcebergType]) -> Optional[IcebergType]:
+    def list(
+        self, list_type: pa.ListType, element_result: Optional[IcebergType]
+    ) -> Optional[IcebergType]:
         element_field = list_type.value_field
         element_id = _get_field_id(element_field)
         if element_result is not None and element_id is not None:
-            return ListType(element_id, element_result, element_required=not element_field.nullable)
+            return ListType(
+                element_id, element_result, element_required=not element_field.nullable
+            )
         return None
 
     def map(
-        self, map_type: pa.MapType, key_result: Optional[IcebergType], value_result: Optional[IcebergType]
+        self,
+        map_type: pa.MapType,
+        key_result: Optional[IcebergType],
+        value_result: Optional[IcebergType],
     ) -> Optional[IcebergType]:
         key_field = map_type.key_field
         key_id = _get_field_id(key_field)
         value_field = map_type.item_field
         value_id = _get_field_id(value_field)
-        if key_result is not None and value_result is not None and key_id is not None and value_id is not None:
-            return MapType(key_id, key_result, value_id, value_result, value_required=not value_field.nullable)
+        if (
+            key_result is not None
+            and value_result is not None
+            and key_id is not None
+            and value_id is not None
+        ):
+            return MapType(
+                key_id,
+                key_result,
+                value_id,
+                value_result,
+                value_required=not value_field.nullable,
+            )
         return None
 
     def primitive(self, primitive: pa.DataType) -> IcebergType:
@@ -1048,16 +1233,26 @@ def _task_to_table(
             schema_raw = metadata.get(ICEBERG_SCHEMA)
         # TODO: if field_ids are not present, Name Mapping should be implemented to look them up in the table schema,
         #  see https://github.com/apache/iceberg/issues/7451
-        file_schema = Schema.parse_raw(schema_raw) if schema_raw is not None else pyarrow_to_schema(physical_schema)
+        file_schema = (
+            Schema.parse_raw(schema_raw)
+            if schema_raw is not None
+            else pyarrow_to_schema(physical_schema)
+        )
         file_schema = sanitize_column_names(file_schema)
 
         pyarrow_filter = None
         if bound_row_filter is not AlwaysTrue():
-            translated_row_filter = translate_column_names(bound_row_filter, file_schema, case_sensitive=case_sensitive)
-            bound_file_filter = bind(file_schema, translated_row_filter, case_sensitive=case_sensitive)
+            translated_row_filter = translate_column_names(
+                bound_row_filter, file_schema, case_sensitive=case_sensitive
+            )
+            bound_file_filter = bind(
+                file_schema, translated_row_filter, case_sensitive=case_sensitive
+            )
             pyarrow_filter = expression_to_pyarrow(bound_file_filter)
 
-        file_project_schema = prune_columns(file_schema, projected_field_ids, select_full_types=False)
+        file_project_schema = prune_columns(
+            file_schema, projected_field_ids, select_full_types=False
+        )
 
         if file_schema is None:
             raise ValueError(f"Missing Iceberg schema in Metadata for file: {path}")
@@ -1073,7 +1268,9 @@ def _task_to_table(
 
         if positional_deletes:
             # Create the mask of indices that we're interested in
-            indices = _combine_positional_deletes(positional_deletes, fragment.count_rows())
+            indices = _combine_positional_deletes(
+                positional_deletes, fragment.count_rows()
+            )
 
             if limit:
                 if pyarrow_filter is not None:
@@ -1109,13 +1306,16 @@ def _task_to_table(
         return to_requested_schema(projected_schema, file_project_schema, arrow_table)
 
 
-def _read_all_delete_files(fs: FileSystem, tasks: Iterable[FileScanTask]) -> Dict[str, List[ChunkedArray]]:
+def _read_all_delete_files(
+    fs: FileSystem, tasks: Iterable[FileScanTask]
+) -> Dict[str, List[ChunkedArray]]:
     deletes_per_file: Dict[str, List[ChunkedArray]] = {}
     unique_deletes = set(chain.from_iterable([task.delete_files for task in tasks]))
     if len(unique_deletes) > 0:
         executor = ExecutorFactory.get_or_create()
         deletes_per_files: Iterator[Dict[str, ChunkedArray]] = executor.map(
-            lambda args: _read_deletes(*args), [(fs, delete) for delete in unique_deletes]
+            lambda args: _read_deletes(*args),
+            [(fs, delete) for delete in unique_deletes],
         )
         for delete in deletes_per_files:
             for file, arr in delete.items():
@@ -1158,15 +1358,21 @@ def project_table(
             if isinstance(table.io, FsspecFileIO):
                 fs = PyFileSystem(FSSpecHandler(table.io.get_fs(scheme)))
             else:
-                raise ValueError(f"Expected PyArrowFileIO or FsspecFileIO, got: {table.io}")
+                raise ValueError(
+                    f"Expected PyArrowFileIO or FsspecFileIO, got: {table.io}"
+                )
         except ModuleNotFoundError as e:
             # When FsSpec is not installed
-            raise ValueError(f"Expected PyArrowFileIO or FsspecFileIO, got: {table.io}") from e
+            raise ValueError(
+                f"Expected PyArrowFileIO or FsspecFileIO, got: {table.io}"
+            ) from e
 
     bound_row_filter = bind(table.schema(), row_filter, case_sensitive=case_sensitive)
 
     projected_field_ids = {
-        id for id in projected_schema.field_ids if not isinstance(projected_schema.find_type(id), (MapType, ListType))
+        id
+        for id in projected_schema.field_ids
+        if not isinstance(projected_schema.find_type(id), (MapType, ListType))
     }.union(extract_field_ids(bound_row_filter))
 
     row_counts: List[int] = []
@@ -1190,7 +1396,9 @@ def project_table(
 
     # for consistent ordering, we need to maintain future order
     futures_index = {f: i for i, f in enumerate(futures)}
-    completed_futures: SortedList[Future[pa.Table]] = SortedList(iterable=[], key=lambda f: futures_index[f])
+    completed_futures: SortedList[Future[pa.Table]] = SortedList(
+        iterable=[], key=lambda f: futures_index[f]
+    )
     for future in concurrent.futures.as_completed(futures):
         completed_futures.add(future)
 
@@ -1215,8 +1423,15 @@ def project_table(
     return result
 
 
-def to_requested_schema(requested_schema: Schema, file_schema: Schema, table: pa.Table) -> pa.Table:
-    struct_array = visit_with_partner(requested_schema, table, ArrowProjectionVisitor(file_schema), ArrowAccessor(file_schema))
+def to_requested_schema(
+    requested_schema: Schema, file_schema: Schema, table: pa.Table
+) -> pa.Table:
+    struct_array = visit_with_partner(
+        requested_schema,
+        table,
+        ArrowProjectionVisitor(file_schema),
+        ArrowAccessor(file_schema),
+    )
 
     arrays = []
     fields = []
@@ -1236,14 +1451,24 @@ class ArrowProjectionVisitor(SchemaWithPartnerVisitor[pa.Array, Optional[pa.Arra
     def cast_if_needed(self, field: NestedField, values: pa.Array) -> pa.Array:
         file_field = self.file_schema.find_field(field.field_id)
         if field.field_type.is_primitive and field.field_type != file_field.field_type:
-            return values.cast(schema_to_pyarrow(promote(file_field.field_type, field.field_type)))
+            return values.cast(
+                schema_to_pyarrow(promote(file_field.field_type, field.field_type))
+            )
         return values
 
-    def schema(self, schema: Schema, schema_partner: Optional[pa.Array], struct_result: Optional[pa.Array]) -> Optional[pa.Array]:
+    def schema(
+        self,
+        schema: Schema,
+        schema_partner: Optional[pa.Array],
+        struct_result: Optional[pa.Array],
+    ) -> Optional[pa.Array]:
         return struct_result
 
     def struct(
-        self, struct: StructType, struct_array: Optional[pa.Array], field_results: List[Optional[pa.Array]]
+        self,
+        struct: StructType,
+        struct_array: Optional[pa.Array],
+        field_results: List[Optional[pa.Array]],
     ) -> Optional[pa.Array]:
         if struct_array is None:
             return None
@@ -1259,22 +1484,38 @@ class ArrowProjectionVisitor(SchemaWithPartnerVisitor[pa.Array, Optional[pa.Arra
                 field_arrays.append(pa.nulls(len(struct_array), type=arrow_type))
                 fields.append(pa.field(field.name, arrow_type, field.optional))
             else:
-                raise ResolveError(f"Field is required, and could not be found in the file: {field}")
+                raise ResolveError(
+                    f"Field is required, and could not be found in the file: {field}"
+                )
 
         return pa.StructArray.from_arrays(arrays=field_arrays, fields=pa.struct(fields))
 
-    def field(self, field: NestedField, _: Optional[pa.Array], field_array: Optional[pa.Array]) -> Optional[pa.Array]:
+    def field(
+        self, field: NestedField, _: Optional[pa.Array], field_array: Optional[pa.Array]
+    ) -> Optional[pa.Array]:
         return field_array
 
-    def list(self, list_type: ListType, list_array: Optional[pa.Array], value_array: Optional[pa.Array]) -> Optional[pa.Array]:
+    def list(
+        self,
+        list_type: ListType,
+        list_array: Optional[pa.Array],
+        value_array: Optional[pa.Array],
+    ) -> Optional[pa.Array]:
         return (
-            pa.ListArray.from_arrays(list_array.offsets, self.cast_if_needed(list_type.element_field, value_array))
+            pa.ListArray.from_arrays(
+                list_array.offsets,
+                self.cast_if_needed(list_type.element_field, value_array),
+            )
             if isinstance(list_array, pa.ListArray)
             else None
         )
 
     def map(
-        self, map_type: MapType, map_array: Optional[pa.Array], key_result: Optional[pa.Array], value_result: Optional[pa.Array]
+        self,
+        map_type: MapType,
+        map_array: Optional[pa.Array],
+        key_result: Optional[pa.Array],
+        value_result: Optional[pa.Array],
     ) -> Optional[pa.Array]:
         return (
             pa.MapArray.from_arrays(
@@ -1286,7 +1527,9 @@ class ArrowProjectionVisitor(SchemaWithPartnerVisitor[pa.Array, Optional[pa.Arra
             else None
         )
 
-    def primitive(self, _: PrimitiveType, array: Optional[pa.Array]) -> Optional[pa.Array]:
+    def primitive(
+        self, _: PrimitiveType, array: Optional[pa.Array]
+    ) -> Optional[pa.Array]:
         return array
 
 
@@ -1299,7 +1542,9 @@ class ArrowAccessor(PartnerAccessor[pa.Array]):
     def schema_partner(self, partner: Optional[pa.Array]) -> Optional[pa.Array]:
         return partner
 
-    def field_partner(self, partner_struct: Optional[pa.Array], field_id: int, _: str) -> Optional[pa.Array]:
+    def field_partner(
+        self, partner_struct: Optional[pa.Array], field_id: int, _: str
+    ) -> Optional[pa.Array]:
         if partner_struct:
             # use the field name from the file schema
             try:
@@ -1314,7 +1559,9 @@ class ArrowAccessor(PartnerAccessor[pa.Array]):
 
         return None
 
-    def list_element_partner(self, partner_list: Optional[pa.Array]) -> Optional[pa.Array]:
+    def list_element_partner(
+        self, partner_list: Optional[pa.Array]
+    ) -> Optional[pa.Array]:
         return partner_list.values if isinstance(partner_list, pa.ListArray) else None
 
     def map_key_partner(self, partner_map: Optional[pa.Array]) -> Optional[pa.Array]:
